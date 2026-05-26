@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+:root {
+  /* Мягкий светлый фон и глубокий графитовый текст */
+  --background: #fbfbfb;
+  --foreground: #121212;
+}
+
+.dark {
+  /* Глубокий темный фон для ночного режима */
+  --background: #09090b;
+  --foreground: #f4f4f5;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@variant dark (&:where(.dark, .dark *));
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
