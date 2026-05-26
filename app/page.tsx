@@ -1,12 +1,15 @@
 'use client';
 
 import { useState, useEffect, useRef, useLayoutEffect } from 'react'; 
-import { Responsive, Layout } from 'react-grid-layout';
+import { Responsive, Layout, Layouts } from 'react-grid-layout';
+import { useAuth } from '@/src/context/AuthContext';
+import { createClient } from "@/lib/supabase/client";
+
 // Обязательные стили для работы сетки
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 
-// --- Пользовательский хук для отслеживания ширины (замена WidthProvider) ---
+// --- Пользовательский хук для отслеживания ширины ---
 function useContainerWidth(defaultWidth: number = 2000) {
   const [width, setWidth] = useState<number>(defaultWidth);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -14,7 +17,6 @@ function useContainerWidth(defaultWidth: number = 2000) {
   useLayoutEffect(() => {
     if (!containerRef.current) return;
     
-    // Установка актуальной ширины сразу
     setWidth(containerRef.current.offsetWidth);
 
     const observer = new ResizeObserver((entries) => {
@@ -29,6 +31,7 @@ function useContainerWidth(defaultWidth: number = 2000) {
 
   return { width, containerRef };
 }
+
 // --- Интерфейсы ---
 interface ExchangeRate {
   id: string;
@@ -72,8 +75,8 @@ const getWeatherCondition = (code: number): string => {
   return 'Облачно';
 };
 
-// Дефолтная раскладка блоков (координаты и размеры)
-const defaultLayout: Layout = [
+// Дефолтная раскладка блоков
+const defaultLayout: Layout[] = [
   { i: MODULE_WEATHER_SAMARA, x: 0, y: 0, w: 3, h: 2, minW: 2, minH: 2 },
   { i: MODULE_WEATHER_MOSCOW, x: 3, y: 0, w: 3, h: 2, minW: 2, minH: 2 },
   { i: MODULE_RATES_COMBINED, x: 6, y: 0, w: 3, h: 3, minW: 3, minH: 2 },
@@ -83,6 +86,9 @@ const defaultLayout: Layout = [
 ];
 
 export default function DashboardPage() {
+  const { user, isLoading: isAuthLoading } = useAuth();
+  const supabase = createClient();
+
   const [isMounted, setIsMounted] = useState(false);
   const { width, containerRef } = useContainerWidth();
 
@@ -93,10 +99,7 @@ export default function DashboardPage() {
   const [calcInput, setCalcInput] = useState('');
   const [calcResult, setCalcResult] = useState('');
 
-  const [bookmarks, setBookmarks] = useState<Bookmark[]>([
-    { id: '1', name: 'GitHub', url: 'https://github.com' },
-    { id: '2', name: 'YouTube', url: 'https://youtube.com' }
-  ]);
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [isBookmarkModalOpen, setIsBookmarkModalOpen] = useState(false);
   const [editingBookmarkId, setEditingBookmarkId] = useState<string | null>(null);
   const [bookmarkDraft, setBookmarkDraft] = useState({ name: '', url: '' });
@@ -105,8 +108,11 @@ export default function DashboardPage() {
   const [weatherLoading, setWeatherLoading] = useState(true);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
 
-  // Состояния для сетки
-  const [layouts, setLayouts] = useState<{ lg: Layout }>({ lg: defaultLayout });
+  // Важно: Флаг загрузки персональной сетки
+  const [isLayoutLoading, setIsLayoutLoading] = useState(true);
+
+  // Состояния для хранения сетки
+  const [layouts, setLayouts] = useState<Layouts>({ lg: defaultLayout });
   const [visibleModules, setVisibleModules] = useState<Record<string, boolean>>({
     [MODULE_WEATHER_SAMARA]: true,
     [MODULE_WEATHER_MOSCOW]: true,
@@ -116,32 +122,91 @@ export default function DashboardPage() {
     [MODULE_BOOKMARKS]: true,
   });
 
+  // 1. Инициализация кликов
   useEffect(() => {
-    setIsMounted(true); // Для предотвращения ошибки гидратации
-    
+    setIsMounted(true);
     const handleOutsideClick = () => setActiveMenuId(null);
     window.addEventListener('click', handleOutsideClick);
-
-    // Восстановление данных из localStorage
-    const savedNote = localStorage.getItem('hub_scratchpad');
-    if (savedNote) setNote(savedNote);
-
-    const savedBookmarks = localStorage.getItem('hub_bookmarks');
-    if (savedBookmarks) setBookmarks(JSON.parse(savedBookmarks));
-
-    const savedLayout = localStorage.getItem('hub_layout');
-    if (savedLayout) {
-      setLayouts({ lg: JSON.parse(savedLayout) });
-    }
-
-    const savedVisibility = localStorage.getItem('hub_modules_visibility');
-    if (savedVisibility) {
-      setVisibleModules(prev => ({ ...prev, ...JSON.parse(savedVisibility) }));
-    }
-
     return () => window.removeEventListener('click', handleOutsideClick);
   }, []);
 
+  // 2. Восстановление данных, размеров и позиций из Supabase
+  useEffect(() => {
+    if (!user) return;
+
+    async function fetchUserData() {
+      try {
+        const { data: settingsData, error: settingsError } = await supabase
+          .from('user_settings')
+          .select('key, value')
+          .eq('user_id', user.id);
+
+        if (!settingsError && settingsData) {
+          // Локальные переменные, чтобы обновить стейты одновременно
+          let savedLayoutLg = defaultLayout;
+          let savedVisibility = {
+            [MODULE_WEATHER_SAMARA]: true,
+            [MODULE_WEATHER_MOSCOW]: true,
+            [MODULE_RATES_COMBINED]: true,
+            [MODULE_SCRATCHPAD]: true,
+            [MODULE_CALCULATOR]: true,
+            [MODULE_BOOKMARKS]: true,
+          };
+
+          settingsData.forEach(item => {
+            if (item.key === 'scratchpad') setNote(item.value);
+            
+            if (item.key === 'layout') {
+              try {
+                const parsed = JSON.parse(item.value);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                  savedLayoutLg = parsed;
+                }
+              } catch (e) {
+                console.error("Ошибка парсинга разметки сетки", e);
+              }
+            }
+            
+            if (item.key === 'modules_visibility') {
+              try {
+                savedVisibility = JSON.parse(item.value);
+              } catch (e) {
+                console.error("Ошибка парсинга видимости модулей", e);
+              }
+            }
+          });
+
+          setLayouts({ lg: savedLayoutLg });
+          setVisibleModules(savedVisibility);
+        }
+
+        // Загрузка закладок
+        const { data: bookmarksData, error: bookmarksError } = await supabase
+          .from('bookmarks')
+          .select('id, name, url')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: true });
+
+        if (!bookmarksError && bookmarksData) {
+          setBookmarks(bookmarksData);
+        } else if (!bookmarksData || bookmarksData.length === 0) {
+          setBookmarks([
+            { id: '1', name: 'GitHub', url: 'https://github.com' },
+            { id: '2', name: 'YouTube', url: 'https://youtube.com' }
+          ]);
+        }
+      } catch (err) {
+        console.error('Ошибка загрузки данных пользователя:', err);
+      } finally {
+        // Сетка загружена, можно рендерить
+        setIsLayoutLoading(false);
+      }
+    }
+
+    fetchUserData();
+  }, [user, supabase]);
+
+  // 3. Загрузка публичных данных (Погода и Валюта)
   useEffect(() => {
     async function fetchRates() {
       try {
@@ -167,57 +232,55 @@ export default function DashboardPage() {
       }
     }
 
-async function fetchWeather() {
-  try {
-    const cities = [
-      { name: 'Самара', lat: '53.2001', lon: '50.1500' },
-      { name: 'Москва', lat: '55.7558', lon: '37.6173' }
-    ];
-    
-    const promises = cities.map(async (city) => {
+    async function fetchWeather() {
       try {
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&current=temperature_2m,relative_humidity_2m,surface_pressure,weather_code,wind_speed_10m&wind_speed_unit=ms&timezone=auto`;
-        const res = await fetch(url);
+        const cities = [
+          { name: 'Самара', lat: '53.2001', lon: '50.1500' },
+          { name: 'Москва', lat: '55.7558', lon: '37.6173' }
+        ];
         
-        if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
+        const promises = cities.map(async (city) => {
+          try {
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&current=temperature_2m,relative_humidity_2m,surface_pressure,weather_code,wind_speed_10m&wind_speed_unit=ms&timezone=auto`;
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
+            
+            const data = await res.json();
+            const current = data.current;
+            const temp = Math.round(current.temperature_2m);
+            const pressureMmHg = Math.round(current.surface_pressure * 0.750062);
+            
+            return {
+              id: `weather-${city.name}`,
+              city: city.name,
+              temp: `${temp > 0 ? '+' : ''}${temp}°C`,
+              condition: getWeatherCondition(current.weather_code),
+              humidity: `${current.relative_humidity_2m}%`,
+              windSpeed: `${current.wind_speed_10m.toFixed(1)} м/с`,
+              pressure: `${pressureMmHg} мм`
+            };
+          } catch (cityError) {
+            console.error(`Не удалось загрузить погоду для г. ${city.name}:`, cityError);
+            return {
+              id: `weather-${city.name}`,
+              city: city.name,
+              temp: '—',
+              condition: 'Ошибка сети',
+              humidity: '—',
+              windSpeed: '—',
+              pressure: '—'
+            };
+          }
+        });
         
-        const data = await res.json();
-        const current = data.current;
-        const temp = Math.round(current.temperature_2m);
-        const pressureMmHg = Math.round(current.surface_pressure * 0.750062);
-        
-        return {
-          id: `weather-${city.name}`,
-          city: city.name,
-          temp: `${temp > 0 ? '+' : ''}${temp}°C`,
-          condition: getWeatherCondition(current.weather_code),
-          humidity: `${current.relative_humidity_2m}%`,
-          windSpeed: `${current.wind_speed_10m.toFixed(1)} м/с`,
-          pressure: `${pressureMmHg} мм`
-        };
-      } catch (cityError) {
-        console.error(`Не удалось загрузить погоду для г. ${city.name}:`, cityError);
-        // Возвращаем пустую карточку или ошибку для конкретного города
-        return {
-          id: `weather-${city.name}`,
-          city: city.name,
-          temp: '—',
-          condition: 'Ошибка сети',
-          humidity: '—',
-          windSpeed: '—',
-          pressure: '—'
-        };
+        const results = await Promise.all(promises);
+        setWeatherData(results);
+      } catch (error) {
+        console.error("Глобальная ошибка пула погоды:", error);
+      } finally {
+        setWeatherLoading(false);
       }
-    });
-    
-    const results = await Promise.all(promises);
-    setWeatherData(results);
-  } catch (error) {
-    console.error("Глобальная ошибка пула погоды:", error);
-  } finally {
-    setWeatherLoading(false);
-  }
-}
+    }
 
     fetchRates();
     fetchWeather();
@@ -254,63 +317,110 @@ async function fetchWeather() {
     setIsBookmarkModalOpen(true);
   };
 
-  const handleSaveBookmark = () => {
+  const handleSaveBookmark = async () => {
+    if (!user) return;
+    
     let finalUrl = bookmarkDraft.url.trim();
     if (finalUrl && !finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
       finalUrl = 'https://' + finalUrl;
     }
     
-    let updated;
+    const bookmarkName = bookmarkDraft.name || 'Без названия';
+
     if (editingBookmarkId) {
-      updated = bookmarks.map(b => 
-        b.id === editingBookmarkId 
-          ? { ...b, name: bookmarkDraft.name || 'Без названия', url: finalUrl } 
-          : b
-      );
+      const { error } = await supabase
+        .from('bookmarks')
+        .update({ name: bookmarkName, url: finalUrl })
+        .eq('id', editingBookmarkId)
+        .eq('user_id', user.id);
+
+      if (!error) {
+        setBookmarks(bookmarks.map(b => b.id === editingBookmarkId ? { ...b, name: bookmarkName, url: finalUrl } : b));
+      }
     } else {
-      updated = [...bookmarks, { id: Date.now().toString(), name: bookmarkDraft.name || 'Без названия', url: finalUrl }];
+      const { data, error } = await supabase
+        .from('bookmarks')
+        .insert([{ user_id: user.id, name: bookmarkName, url: finalUrl }])
+        .select()
+        .single();
+
+      if (!error && data) {
+        setBookmarks([...bookmarks, { id: data.id, name: data.name, url: data.url }]);
+      }
     }
     
-    setBookmarks(updated);
-    localStorage.setItem('hub_bookmarks', JSON.stringify(updated));
     setIsBookmarkModalOpen(false);
   };
 
-  const removeBookmark = (id: string) => {
-    const updated = bookmarks.filter(b => b.id !== id);
-    setBookmarks(updated);
-    localStorage.setItem('hub_bookmarks', JSON.stringify(updated));
+  const removeBookmark = async (id: string) => {
+    if (!user) return;
+
+    const { error } = await supabase
+      .from('bookmarks')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user.id);
+
+    if (!error) {
+      setBookmarks(bookmarks.filter(b => b.id !== id));
+    }
   };
 
-  const handleNoteChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const handleNoteChange = async (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     setNote(value);
-    localStorage.setItem('hub_scratchpad', value);
+    if (!user) return;
+
+    await supabase
+      .from('user_settings')
+      .upsert({ user_id: user.id, key: 'scratchpad', value: value }, { onConflict: 'user_id,key' });
   };
 
-  const resetSettings = () => {
-    localStorage.removeItem('hub_layout');
-    localStorage.removeItem('hub_modules_visibility');
+  const resetSettings = async () => {
     setLayouts({ lg: defaultLayout });
-    setVisibleModules({
+    const initialVisibility = {
       [MODULE_WEATHER_SAMARA]: true,
       [MODULE_WEATHER_MOSCOW]: true,
       [MODULE_RATES_COMBINED]: true,
       [MODULE_SCRATCHPAD]: true,
       [MODULE_CALCULATOR]: true,
       [MODULE_BOOKMARKS]: true,
-    });
+    };
+    setVisibleModules(initialVisibility);
+
+    if (!user) return;
+
+    await supabase.from('user_settings').delete().eq('user_id', user.id).in('key', ['layout', 'modules_visibility']);
   };
 
-  const toggleVisibility = (id: string, value: boolean) => {
+  const toggleVisibility = async (id: string, value: boolean) => {
     const updated = { ...visibleModules, [id]: value };
     setVisibleModules(updated);
-    localStorage.setItem('hub_modules_visibility', JSON.stringify(updated));
+
+    if (!user) return;
+
+    await supabase
+      .from('user_settings')
+      .upsert({ user_id: user.id, key: 'modules_visibility', value: JSON.stringify(updated) }, { onConflict: 'user_id,key' });
   };
 
-  const onLayoutChange = (currentLayout: Layout) => {
-    setLayouts({ lg: currentLayout });
-    localStorage.setItem('hub_layout', JSON.stringify(currentLayout));
+  // Исправлено: функция сохранения разметки теперь берет корректную структуру `allLayouts.lg`
+  const onLayoutChange = async (currentLayout: Layout[], allLayouts: Layouts) => {
+    if (isLayoutLoading || !user) return;
+
+    // Сохраняем именно текущую конфигурацию брейкпоинта 'lg'
+    const targetLayout = allLayouts.lg || currentLayout;
+    const filteredLayout = targetLayout.filter(item => item.w > 0 && item.h > 0);
+
+    setLayouts({ lg: filteredLayout });
+
+    await supabase
+      .from('user_settings')
+      .upsert({ 
+        user_id: user.id, 
+        key: 'layout', 
+        value: JSON.stringify(filteredLayout) 
+      }, { onConflict: 'user_id,key' });
   };
 
   const moduleNames: Record<string, string> = {
@@ -323,20 +433,29 @@ async function fetchWeather() {
   };
 
   const hasHiddenModules = Object.values(visibleModules).some(v => !v);
-  
   const baseCardStyle = "rounded-2xl bg-white dark:bg-[#1D1D29] text-black dark:text-white border border-zinc-200/60 dark:border-zinc-800/40 p-5 flex flex-col w-full h-full shadow-sm hover:shadow-md transition-shadow duration-200";
 
-  // Рендер откладываем до монтирования, чтобы избежать ошибки гидратации Next.js
-  if (!isMounted) return null;
+  if (isAuthLoading || !isMounted || isLayoutLoading) {
+    return <div className="flex h-screen w-full items-center justify-center text-zinc-500 bg-[#F3F3F3] dark:bg-[#11121E]">Загрузка персонального дашборда...</div>;
+  }
+
+  if (!user) {
+    return (
+      <div className="flex h-96 w-full flex-col items-center justify-center space-y-4 text-center">
+        <h2 className="text-xl font-bold">Доступ ограничен</h2>
+        <p className="text-zinc-500 text-sm">Пожалуйста, авторизуйтесь в системе, чтобы увидеть свой персональный рабочий стол.</p>
+      </div>
+    );
+  }
 
   return (
     <>
       <div ref={containerRef} className="space-y-5 w-full max-w-full overflow-hidden p-0.5">
         
-        {/* ПАНЕЛЬ ВОССТАНОВЛЕНИЯ */}
+        {/* ПАНЕЛЬ УПРАВЛЕНИЯ */}
         <div className="flex flex-wrap items-center justify-between gap-4 p-3.5 bg-white dark:bg-[#1D1D29] rounded-2xl border border-zinc-200/60 dark:border-zinc-800/40 text-xs shadow-sm">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[#7B7B7B] font-medium text-sm">Информеры:</span>
+            <span className="text-[#7B7B7B] font-medium text-sm">Информеры ({user.email}):</span>
             {hasHiddenModules ? (
               Object.keys(moduleNames).map(id => !visibleModules[id] && (
                 <button
@@ -359,25 +478,26 @@ async function fetchWeather() {
           </button>
         </div>
 
-        {/* СЕТКА (REACT-GRID-LAYOUT) с использованием кастомной ширины */}
-<Responsive
-  width={width}
-  className="layout"
-  layouts={layouts}
-  // Расширяем брейкпоинты для всех типов устройств
-  breakpoints={{ lg: 1280, md: 992, sm: 768, xs: 480, xxs: 0 }}
-  // Уменьшаем количество колонок на маленьких экранах, чтобы блоки не сжимались
-  cols={{ lg: 12, md: 8, sm: 4, xs: 2, xxs: 1 }}
-  rowHeight={85}
-  onLayoutChange={onLayoutChange}
-  draggableHandle=".drag-handle" 
-  margin={[20, 20]}
-  containerPadding={[0, 0]}
-  isBounded={false}
-  useCSSTransforms={true}
->
+        {/* СЕТКА С ЖЕСТКОЙ ПРИВЯЗКОЙ К ДАННЫМ ИЗ БД */}
+        <Responsive
+          width={width}
+          className="layout"
+          layouts={layouts}
+          breakpoints={{ lg: 1280, md: 992, sm: 768, xs: 480, xxs: 0 }}
+          cols={{ lg: 12, md: 8, sm: 4, xs: 2, xxs: 1 }}
+          rowHeight={85}
+          onLayoutChange={onLayoutChange}
+          draggableHandle=".drag-handle" 
+          margin={[20, 20]}
+          containerPadding={[0, 0]}
+          isBounded={false}
+          useCSSTransforms={true}
+        >
           {Object.keys(moduleNames).map((id) => {
             if (!visibleModules[id]) return <div key={id} data-grid={{ w: 0, h: 0, x: 0, y: 0 }} className="hidden" />;
+
+            // Получаем персональные размеры конкретного модуля, если они есть в стейте, иначе дефолтные
+            const currentItemSettings = layouts.lg?.find(item => item.i === id) || defaultLayout.find(item => item.i === id);
 
             const actionsDropdown = (
               <div className="relative inline-block text-left shrink-0">
@@ -415,7 +535,7 @@ async function fetchWeather() {
             if (id.startsWith('weather-')) {
               if (weatherLoading) {
                 return (
-                  <div key={id} className={baseCardStyle + " flex items-center justify-center animate-pulse"}>
+                  <div key={id} data-grid={currentItemSettings} className={baseCardStyle + " flex items-center justify-center animate-pulse"}>
                     <span className="text-[11px] text-[#7B7B7B] uppercase font-semibold">Синхронизация...</span>
                   </div>
                 );
@@ -423,7 +543,7 @@ async function fetchWeather() {
               const w = weatherData.find(item => item.id === id);
               if (!w) return <div key={id} className="hidden" />;
               return (
-                <div key={w.id} className="h-full">
+                <div key={w.id} data-grid={currentItemSettings} className="h-full">
                   <div className={baseCardStyle}>
                     <div className="drag-handle flex items-center justify-between gap-2 min-w-0 cursor-grab active:cursor-grabbing mb-2">
                       <span className="text-xs font-bold tracking-wider text-black dark:text-white uppercase truncate select-none">Погода • {w.city}</span>
@@ -446,13 +566,13 @@ async function fetchWeather() {
             if (id === MODULE_RATES_COMBINED) {
               if (ratesLoading) {
                 return (
-                  <div key={id} className={baseCardStyle + " flex items-center justify-center animate-pulse"}>
+                  <div key={id} data-grid={currentItemSettings} className={baseCardStyle + " flex items-center justify-center animate-pulse"}>
                     <span className="text-[11px] text-[#7B7B7B] uppercase font-semibold">Синхронизация...</span>
                   </div>
                 );
               }
               return (
-                <div key={id} className="h-full">
+                <div key={id} data-grid={currentItemSettings} className="h-full">
                   <div className={baseCardStyle}>
                     <div className="drag-handle flex items-center justify-between gap-2 mb-2 min-w-0 cursor-grab active:cursor-grabbing">
                       <span className="text-xs font-bold tracking-wider text-black dark:text-white uppercase truncate select-none">Курсы валют</span>
@@ -491,7 +611,7 @@ async function fetchWeather() {
             // КАЛЬКУЛЯТОР
             if (id === MODULE_CALCULATOR) {
               return (
-                <div key={id} className="h-full">
+                <div key={id} data-grid={currentItemSettings} className="h-full">
                   <div className={baseCardStyle}>
                     <div className="drag-handle flex items-center justify-between mb-3 shrink-0 gap-2 min-w-0 cursor-grab active:cursor-grabbing">
                       <span className="text-xs font-bold tracking-wider text-black dark:text-white uppercase truncate select-none">Калькулятор</span>
@@ -518,7 +638,7 @@ async function fetchWeather() {
             // ЗАКЛАДКИ
             if (id === MODULE_BOOKMARKS) {
               return (
-                <div key={id} className="h-full">
+                <div key={id} data-grid={currentItemSettings} className="h-full">
                   <div className={baseCardStyle}>
                     <div className="drag-handle flex items-center justify-between mb-3 shrink-0 gap-2 min-w-0 cursor-grab active:cursor-grabbing">
                       <span className="text-xs font-bold tracking-wider text-black dark:text-white uppercase truncate select-none">Закладки</span>
@@ -566,7 +686,7 @@ async function fetchWeather() {
             // БЫСТРЫЙ БЛОКНОТ
             if (id === MODULE_SCRATCHPAD) {
               return (
-                <div key={id} className="h-full flex flex-col">
+                <div key={id} data-grid={currentItemSettings} className="h-full flex flex-col">
                   <div className={baseCardStyle}>
                     <div className="drag-handle flex items-center justify-between mb-2 shrink-0 gap-2 min-w-0 cursor-grab active:cursor-grabbing">
                       <span className="text-xs font-bold tracking-wider text-black dark:text-white uppercase truncate select-none">Быстрый блокнот</span>
