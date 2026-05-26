@@ -9,12 +9,12 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && !user && pathname !== "/login") {
+    if (isLoading) return;
+    if (!user && pathname !== "/login") {
       router.replace("/login");
     }
   }, [user, isLoading, pathname, router]);
 
-  if (isLoading) return null; // Или ваш красивый спиннер
-
+  if (isLoading) return <div>Загрузка...</div>;
   return <>{children}</>;
 }

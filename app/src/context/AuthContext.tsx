@@ -1,14 +1,12 @@
 "use client";
-
 import { createContext, useContext, useEffect, useState } from "react";
-import { createClient } from "../../lib/supabase/client";
-import { User, SignInWithPasswordCredentials } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/client";
+import { User, AuthError } from "@supabase/supabase-js";
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  // Добавляем функцию login обратно в интерфейс
-  login: (credentials: SignInWithPasswordCredentials) => Promise<{ error: any }>;
+  login: (credentials: any) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
 }
 
@@ -25,14 +23,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
 
   useEffect(() => {
-    const getSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+    // Получение текущей сессии при загрузке
+    supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       setIsLoading(false);
-    };
+    });
 
-    getSession();
-
+    // Подписка на изменения (логин/логаут)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       setIsLoading(false);
@@ -41,8 +38,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, [supabase]);
 
-  // Реализация функции логина
-  const login = async (credentials: SignInWithPasswordCredentials) => {
+  const login = async (credentials: any) => {
     const { error } = await supabase.auth.signInWithPassword(credentials);
     return { error };
   };
