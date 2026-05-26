@@ -17,7 +17,7 @@ export const metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru" suppressHydrationWarning>
-      <body className={`${inter.className} flex h-screen bg-[#F3F3F3] dark:bg-[#11121E] text-zinc-900 dark:text-zinc-100 antialiased overflow-hidden transition-colors duration-200`}>
+      <body className={`${inter.className} flex h-screen text-zinc-900 dark:text-zinc-100 antialiased overflow-hidden transition-colors duration-200`}>
         
         {/* Провайдеры - ОДИН РАЗ, в самом верху */}
         <AuthProvider>
@@ -25,10 +25,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             
             <Sidebar />
 
-            <div className="flex flex-1 flex-col overflow-hidden">
+            <div className="flex flex-1 flex-col overflow-hidden bg-[#F3F3F3] dark:bg-[#11121E]">
               <Header />
-              <main className="flex-1 overflow-y-auto bg-[#F3F3F3] dark:bg-[#11121E] p-8">
-                <div className="w-full">
+              <main className="flex-1 overflow-y-auto p-8">
+                <div className="w-full h-full flex flex-col">
                   <AuthGuard>
                     {children}
                   </AuthGuard>
