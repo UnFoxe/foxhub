@@ -1,5 +1,5 @@
 // app/files/page.tsx
-import { signIn, signOut, auth } from "@/auth"
+import { auth } from "@/auth"
 import Link from "next/link"
 import { getFolderContents, getDiskDiskInfo } from "./actions"
 import FileCard from "./FileCard"
@@ -35,7 +35,8 @@ export default async function FilesPage({
   const resolvedSearchParams = await searchParams
   const currentPath = resolvedSearchParams.path || "/"
 
-  const [diskInfo, items] = session 
+  // Загружаем данные только если есть токен доступа Яндекса
+  const [diskInfo, items] = session?.accessToken 
     ? await Promise.all([getDiskDiskInfo(), getFolderContents(currentPath)]) 
     : [null, []]
 
@@ -96,8 +97,8 @@ export default async function FilesPage({
   return (
     <div className="w-full font-sans transition-colors duration-200">
       
-      {/* ХЕДЕР СТРОКА: КРОШКИ + СТАТИСТИКА В СТРОЧКУ + ВЫХОД */}
-      {session && (
+      {/* ХЕДЕР СТРОКА: КРОШКИ + СТАТИСТИКА В СТРОЧКУ (БЕЗ КНОПКИ ВЫХОДА И ИМЕНИ) */}
+      {session?.accessToken && (
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 w-full">
           
           <div className="flex items-center gap-2">
@@ -112,11 +113,10 @@ export default async function FilesPage({
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-4 bg-white dark:bg-[#1E1F22] p-2 pl-4 rounded-2xl shadow-sm border border-zinc-200/50 dark:border-zinc-800/50 transition-colors ml-auto">
-            
-            {/* Компактный прогресс-бар памяти на уровне кнопки Выйти */}
-            {diskInfo && (
-              <div className="flex items-center gap-3 pr-4 border-r border-zinc-200/60 dark:border-zinc-800">
+          {diskInfo && (
+            <div className="flex items-center gap-4 bg-white dark:bg-[#1E1F22] p-2 px-4 rounded-2xl shadow-sm border border-zinc-200/50 dark:border-zinc-800/50 transition-colors md:ml-auto">
+              {/* Компактный прогресс-бар памяти */}
+              <div className="flex items-center gap-3">
                 <div className="flex flex-col text-right">
                   <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Диск</span>
                   <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
@@ -131,37 +131,62 @@ export default async function FilesPage({
                 </div>
                 <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 font-mono">{usedPercentage}%</span>
               </div>
-            )}
-
-            <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-              Аккаунт: <strong className="text-zinc-900 dark:text-zinc-100 font-semibold">{session.user?.name}</strong>
-            </span>
-            
-            <form action={async () => { "use server"; await signOut() }}>
-              <button className="bg-zinc-50 dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer border border-zinc-200/60 dark:border-zinc-700">
-                Выйти
-              </button>
-            </form>
-          </div>
+            </div>
+          )}
         </div>
       )}
 
-      {!session ? (
-        <div className="text-center py-24 bg-white dark:bg-[#1E1F22] rounded-[2rem] border border-zinc-200/50 dark:border-zinc-800/50 shadow-sm max-w-md mx-auto mt-12 transition-colors">
-          <div className="w-16 h-16 bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 rounded-2xl flex items-center justify-center text-2xl mx-auto mb-6">
-            ☁️
-          </div>
-          <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">Добро пожаловать</h2>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-8 max-w-xs mx-auto">
-            Авторизуйтесь через Яндекс ID для доступа к облаку.
-          </p>
-          <form action={async () => { "use server"; await signIn("yandex") }}>
-            <button className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white text-xs font-bold px-6 py-3.5 rounded-xl shadow-lg shadow-blue-600/10 transition cursor-pointer">
-              Войти через Яндекс ID
-            </button>
-          </form>
+      {/* ЕСЛИ НЕ АВТОРИЗОВАН: ПРЕДЛАГАЕМ ПОДКЛЮЧИТЬ ХРАНИЛИЩЕ В ПРОФИЛЕ */}
+{!session?.accessToken ? (
+  <div className="max-w-md mx-auto mt-12 p-1">
+    <div className="relative overflow-hidden bg-white dark:bg-[#1E1F22] rounded-[2rem] border border-zinc-200/60 dark:border-zinc-800/50 p-8 text-center shadow-sm transition-all duration-200">
+      
+      {/* Декоративный фоновый градиент для глубины */}
+      <div className="absolute -top-24 -left-24 w-48 h-48 bg-blue-500/5 dark:bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-24 -right-24 w-48 h-48 bg-indigo-500/5 dark:bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+
+      {/* Анимированная иконка облака */}
+      <div className="relative w-20 h-20 bg-zinc-50 dark:bg-[#11121E] text-blue-600 dark:text-blue-400 rounded-3xl flex items-center justify-center text-3xl mx-auto mb-6 border border-zinc-200/40 dark:border-zinc-800/40 shadow-inner group">
+        <span className="animate-bounce [animation-duration:3s]">☁️</span>
+        <span className="absolute -right-1 -top-1 flex h-3 w-3">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+        </span>
+      </div>
+
+      {/* Заголовок и описание */}
+      <h3 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
+        Яндекс Диск не подключен
+      </h3>
+      
+      <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-3 mb-8 max-w-xs mx-auto leading-relaxed">
+        Чтобы просматривать папки и работать с файлами, нужно связать ваш аккаунт с Яндекс Диском.
+      </p>
+
+      {/* Интуитивно понятная микро-инструкция */}
+      <div className="bg-zinc-50/80 dark:bg-[#11121E]/60 border border-zinc-200/30 dark:border-zinc-800/30 rounded-2xl p-4 mb-8 text-left space-y-2.5">
+        <div className="flex items-center gap-3 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+          <span className="flex items-center justify-center w-5 h-5 rounded-md bg-zinc-200/60 dark:bg-zinc-800 font-mono text-[10px] font-bold text-zinc-500">1</span>
+          Откройте Личный профиль Hub.
         </div>
-      ) : (
+        <div className="flex items-center gap-3 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+          <span className="flex items-center justify-center w-5 h-5 rounded-md bg-zinc-200/60 dark:bg-zinc-800 font-mono text-[10px] font-bold text-zinc-500">2</span>
+          В разделе «Интеграции» нажмите кнопку  «Подключить»
+        </div>
+      </div>
+
+      {/* Кнопка с эффектом сдвига стрелочки при ховере */}
+      <Link 
+        href="/profile" 
+        className="group inline-flex items-center justify-center gap-2 w-full bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white text-xs font-bold px-6 py-4 rounded-xl shadow-md shadow-blue-600/10 hover:shadow-blue-600/20 transition-all duration-200 cursor-pointer active:scale-[0.99]"
+      >
+        <span>Настроить в профиле</span>
+        <span className="transition-transform duration-200 group-hover:translate-x-1">→</span>
+      </Link>
+
+    </div>
+  </div>
+): (
         /* Одноколоночная структура: всё растягивается на 100% ширины */
         <div className="flex flex-col gap-6 w-full items-stretch">
           
@@ -178,13 +203,12 @@ export default async function FilesPage({
               </div>
             ) : (
               <div className="bg-white dark:bg-[#1E1F22] p-6 sm:p-8 rounded-3xl border border-zinc-200/50 dark:border-zinc-800/50 min-h-[60vh] shadow-sm transition-colors"> 
-                {/* Расширен диапазон колонок сетки для больших экранов до 2xl:grid-cols-12 */}
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12 gap-x-4 gap-y-8">
                   {allItems.map((item: any) => {
                     const meta = getFileTypeMeta(item.name, item.type, item.media_type)
                     return (
                       <FileCard 
-                        key={item.resource_id}
+                        key={item.resource_id || item.path}
                         item={item}
                         meta={meta}
                       />

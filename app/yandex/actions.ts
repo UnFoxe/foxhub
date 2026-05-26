@@ -1,4 +1,4 @@
-// app/files/actions.ts
+// app/yandex/actions.ts
 "use server"
 
 import { auth } from "@/auth"
@@ -6,7 +6,10 @@ import { revalidatePath } from "next/cache"
 
 async function getAuthToken() {
   const session = await auth()
-  if (!session?.accessToken) throw new Error("Не авторизован")
+  // Если токена нет в NextAuth, файлы не загрузятся
+  if (!session?.accessToken) {
+    throw new Error("Не авторизован в Яндекс.Диске")
+  }
   return session.accessToken
 }
 
