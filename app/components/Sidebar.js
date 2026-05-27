@@ -21,6 +21,7 @@ export default function Sidebar() {
     { name: 'Менеджер паролей', href: '/passwords', icon: Key },
     { name: 'Доска ToDo', href: '/notes', icon: Notebook },
     { name: 'Мой компьютер', href: '/pc', icon: Laptop },
+    { name: 'Minecraft Сервер', href: '/minecraft', icon: Laptop },
   ];
 
   return (

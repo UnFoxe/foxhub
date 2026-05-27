@@ -12,6 +12,7 @@ const routeLabels: Record<string, string> = {
   "files": "Хранилище файлов",
   "passwords": "Менеджер паролей",
   "notes": "Личные заметки",
+  "minecraft": "Minecraft Сервер",
   "pc": "Мониторинг ПК",
   "profile": "Профиль", // Добавили метку для отображения в H1
 };

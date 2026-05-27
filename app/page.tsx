@@ -1,13 +1,18 @@
 'use client';
 
 import { useState, useEffect, useRef, useLayoutEffect } from 'react'; 
-import { Responsive, Layout, Layouts } from 'react-grid-layout';
+import { Responsive, Layout } from 'react-grid-layout'; 
 import { useAuth } from '@/src/context/AuthContext';
 import { createClient } from "@/lib/supabase/client";
 
 // Обязательные стили для работы сетки
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
+
+// ИСПРАВЛЕНО: Теперь здесь четко указано, что под каждым ключом (lg, md) лежит МАССИВ карточек
+type Layouts = {
+  [key: string]: Layout | undefined;
+};
 
 // --- Пользовательский хук для отслеживания ширины ---
 function useContainerWidth(defaultWidth: number = 2000) {
@@ -75,14 +80,62 @@ const getWeatherCondition = (code: number): string => {
   return 'Облачно';
 };
 
-// Дефолтная раскладка блоков
-const defaultLayout: Layout[] = [
-  { i: MODULE_WEATHER_SAMARA, x: 0, y: 0, w: 3, h: 2, minW: 2, minH: 2 },
-  { i: MODULE_WEATHER_MOSCOW, x: 3, y: 0, w: 3, h: 2, minW: 2, minH: 2 },
-  { i: MODULE_RATES_COMBINED, x: 6, y: 0, w: 3, h: 3, minW: 3, minH: 2 },
-  { i: MODULE_CALCULATOR, x: 9, y: 0, w: 3, h: 2, minW: 2, minH: 2 },
-  { i: MODULE_BOOKMARKS, x: 0, y: 2, w: 6, h: 3, minW: 4, minH: 2 },
-  { i: MODULE_SCRATCHPAD, x: 6, y: 3, w: 6, h: 3, minW: 4, minH: 2 }
+// ИСПРАВЛЕНО: Изменен тип на Layout[] (массив), так как это список карточек
+const defaultLayout: Layout = [ 
+  { 
+    i: MODULE_WEATHER_SAMARA, 
+    x: 0, 
+    y: 0, 
+    w: 3, 
+    h: 2, 
+    minW: 2, 
+    minH: 2 
+  },
+  { 
+    i: MODULE_WEATHER_MOSCOW, 
+    x: 3, 
+    y: 0, 
+    w: 3, 
+    h: 2, 
+    minW: 2, 
+    minH: 2 
+  },
+  { 
+    i: MODULE_RATES_COMBINED, 
+    x: 6, 
+    y: 0, 
+    w: 3, 
+    h: 3, 
+    minW: 3, 
+    minH: 2 
+  },
+  { 
+    i: MODULE_CALCULATOR, 
+    x: 9, 
+    y: 0, 
+    w: 3, 
+    h: 2, 
+    minW: 2, 
+    minH: 2 
+  },
+  { 
+    i: MODULE_BOOKMARKS, 
+    x: 0, 
+    y: 2, 
+    w: 6, 
+    h: 3, 
+    minW: 4, 
+    minH: 2 
+  },
+  { 
+    i: MODULE_SCRATCHPAD, 
+    x: 6, 
+    y: 3, 
+    w: 6, 
+    h: 3, 
+    minW: 4, 
+    minH: 2 
+  }
 ];
 
 export default function DashboardPage() {
@@ -133,16 +186,17 @@ export default function DashboardPage() {
   // 2. Восстановление данных, размеров и позиций из Supabase
   useEffect(() => {
     if (!user) return;
+    
+    const userId = user.id; 
 
     async function fetchUserData() {
       try {
         const { data: settingsData, error: settingsError } = await supabase
           .from('user_settings')
           .select('key, value')
-          .eq('user_id', user.id);
+          .eq('user_id', userId);
 
         if (!settingsError && settingsData) {
-          // Локальные переменные, чтобы обновить стейты одновременно
           let savedLayoutLg = defaultLayout;
           let savedVisibility = {
             [MODULE_WEATHER_SAMARA]: true,
@@ -184,12 +238,12 @@ export default function DashboardPage() {
         const { data: bookmarksData, error: bookmarksError } = await supabase
           .from('bookmarks')
           .select('id, name, url')
-          .eq('user_id', user.id)
+          .eq('user_id', userId)
           .order('created_at', { ascending: true });
 
-        if (!bookmarksError && bookmarksData) {
+       if (!bookmarksError && bookmarksData && bookmarksData.length > 0) {
           setBookmarks(bookmarksData);
-        } else if (!bookmarksData || bookmarksData.length === 0) {
+        } else {
           setBookmarks([
             { id: '1', name: 'GitHub', url: 'https://github.com' },
             { id: '2', name: 'YouTube', url: 'https://youtube.com' }
@@ -198,7 +252,6 @@ export default function DashboardPage() {
       } catch (err) {
         console.error('Ошибка загрузки данных пользователя:', err);
       } finally {
-        // Сетка загружена, можно рендерить
         setIsLayoutLoading(false);
       }
     }
@@ -404,12 +457,11 @@ export default function DashboardPage() {
       .upsert({ user_id: user.id, key: 'modules_visibility', value: JSON.stringify(updated) }, { onConflict: 'user_id,key' });
   };
 
-  // Исправлено: функция сохранения разметки теперь берет корректную структуру `allLayouts.lg`
-  const onLayoutChange = async (currentLayout: Layout[], allLayouts: Layouts) => {
+const onLayoutChange = async (currentLayout: Layout, allLayouts: Layouts) => {
     if (isLayoutLoading || !user) return;
-
-    // Сохраняем именно текущую конфигурацию брейкпоинта 'lg'
+    
     const targetLayout = allLayouts.lg || currentLayout;
+    
     const filteredLayout = targetLayout.filter(item => item.w > 0 && item.h > 0);
 
     setLayouts({ lg: filteredLayout });
@@ -422,7 +474,6 @@ export default function DashboardPage() {
         value: JSON.stringify(filteredLayout) 
       }, { onConflict: 'user_id,key' });
   };
-
   const moduleNames: Record<string, string> = {
     [MODULE_WEATHER_SAMARA]: 'Погода Самара',
     [MODULE_WEATHER_MOSCOW]: 'Погода Москва',
@@ -467,7 +518,7 @@ export default function DashboardPage() {
                 </button>
               ))
             ) : (
-              <span className="text-[#7B7B7B] italic font-medium">Все блоки отображаются</span>
+              <span className="text-[#7B7B7B] italic font-medium">Все blocks отображаются</span>
             )}
           </div>
           <button 
@@ -487,7 +538,7 @@ export default function DashboardPage() {
           cols={{ lg: 12, md: 8, sm: 4, xs: 2, xxs: 1 }}
           rowHeight={85}
           onLayoutChange={onLayoutChange}
-          draggableHandle=".drag-handle" 
+          {...{ draggableHandle: ".drag-handle" } as any}
           margin={[20, 20]}
           containerPadding={[0, 0]}
           isBounded={false}
@@ -496,7 +547,6 @@ export default function DashboardPage() {
           {Object.keys(moduleNames).map((id) => {
             if (!visibleModules[id]) return <div key={id} data-grid={{ w: 0, h: 0, x: 0, y: 0 }} className="hidden" />;
 
-            // Получаем персональные размеры конкретного модуля, если они есть в стейте, иначе дефолтные
             const currentItemSettings = layouts.lg?.find(item => item.i === id) || defaultLayout.find(item => item.i === id);
 
             const actionsDropdown = (

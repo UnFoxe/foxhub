@@ -254,8 +254,8 @@ if (error) throw error;
         // Если локальный кэш был очищен, но аккаунт в базе есть, берем слепок прямо из Supabase перед сверкой
         const { data } = await supabase.from(SETTINGS_TABLE).select('master_key_encrypted').eq('user_id', user.id).maybeSingle();
         if (data?.master_key_encrypted) {
-          savedCheck = data.master_key_encrypted;
-          localStorage.setItem(storageKey, savedCheck);
+            savedCheck = data.master_key_encrypted;
+            localStorage.setItem(storageKey, data.master_key_encrypted); // <-- Передаем напрямую
         }
       }
 

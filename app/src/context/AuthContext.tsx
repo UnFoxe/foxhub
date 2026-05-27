@@ -3,17 +3,26 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { User, AuthError } from "@supabase/supabase-js";
 
-// Добавим интерфейс для таблицы настроек пользователя
-interface UserSettingsRow {
-  id: string;
-  user_id: string;
-  master_key_encrypted: string | null; // Зашифрованный мастер-ключ
+// 1. Создаем интерфейс для данных входа
+interface LoginCredentials {
+  email: string;
+  password: string;
 }
 
-const AuthContext = createContext({
+// 2. Создаем интерфейс для всего Контекста
+interface AuthContextType {
+  user: User | null;
+  isLoading: boolean;
+  login: (credentials: LoginCredentials) => Promise<{ error: AuthError | null }>;
+  signOut: () => Promise<void>;
+}
+
+// 3. Типизируем createContext
+const AuthContext = createContext<AuthContextType>({
   user: null,
   isLoading: true,
-  login: async () => ({ error: null }),
+  // Теперь TS знает, что login ожидает аргументы
+  login: async () => ({ error: null }), 
   signOut: async () => {},
 });
 
@@ -41,7 +50,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Загрузка настроек пользователя (мастер-ключа) из таблицы user_settings
   useEffect(() => {
     if (!user) return;
-
     const loadSettings = async () => {
       try {
         const { data, error } = await supabase
@@ -52,7 +60,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (data?.master_key_encrypted) {
           // Дешифруем мастер-ключ и передаем в контекст или сохраняем
-          // Для этого нужно добавить метод decryptData из lib/crypto
         }
       } catch (e) {
         console.error('Ошибка загрузки настроек:', e);
@@ -62,8 +69,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loadSettings();
   }, [user]);
 
-  const login = async (credentials: any) => {
-    const { error } = await supabase.auth.signInWithPassword(credentials);
+  // 4. Типизируем аргументы функции login
+  const login = async ({ email, password }: LoginCredentials) => {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
     return { error };
   };
 
